@@ -1,0 +1,14 @@
+.DS_Store
+.ipynb_checkpoints/*
+Aquarium/*
+PlantDoc/*
+*.ipynb 
+VOCdevkit/*
+*.tar 
+*.zip
+*.gz
+*.png
+*.jpg
+wandb/*
+__pycache__/*
+detr/*
