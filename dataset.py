@@ -7,6 +7,7 @@ import os
 import torchvision.transforms as T
 import torchvision 
 from PIL import Image
+from utils import box_cxcywh_to_xyxy
 
 class ObjectDetectionDataset(Dataset):
     def __init__(self, data_dir, annotation_file, transform=None):
@@ -50,10 +51,11 @@ class ObjectDetectionDataset(Dataset):
         b = [(x0 + x1) / 2, (y0 + y1) / 2,
             (x1 - x0), (y1 - y0)]
         boxes = torch.stack(b, dim=-1)
+        # normalize to image size in the range [0, 1]
         boxes = boxes / torch.tensor([w, h, w, h], dtype=torch.float32)
 
         target = {
-            'boxes': torch.tensor(boxes, dtype=torch.float32),
+            'boxes': boxes,
             'labels': torch.tensor(labels, dtype=torch.int64),
             'size': torch.tensor([w, h], dtype=torch.int64),
             'original_image': image,

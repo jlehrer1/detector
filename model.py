@@ -15,6 +15,7 @@ import numpy as np
 import tempfile
 import os
 from utils import box_cxcywh_to_xyxy
+import uuid
 
 class DETR(LightningModule):
     LR = 1e-4
@@ -64,7 +65,7 @@ class DETR(LightningModule):
     def __init__(self, num_classes: int):
         super().__init__()
         self.base_model = torch.hub.load('facebookresearch/detr:main', 'detr_resnet50', pretrained=True)
-        self.base_model.class_embed = nn.Linear(in_features=self.base_model.class_embed.in_features, out_features=num_classes + 1) # for no class
+        # self.base_model.class_embed = nn.Linear(in_features=self.base_model.class_embed.in_features, out_features=num_classes + 1) # for no class
 
         matcher = HungarianMatcher(cost_class=self.SET_COST_CLASS, cost_bbox=self.SET_COST_BBOX, cost_giou=self.SET_COST_GIOU)
         self.loss = SetCriterion(
@@ -143,7 +144,7 @@ class DETR(LightningModule):
         return {"pred_boxes": boxes, "pred_labels": labels, "pred_probabilities": scores}
 
     def plot_and_log_bounding_boxes(self, image, predicted_bboxes, predicted_probabilities, ground_truth_bbox):
-        keep = predicted_probabilities > 0.5
+        keep = predicted_probabilities > 0.9
         predicted_bboxes = predicted_bboxes[keep]
         predicted_probabilities = predicted_probabilities[keep]
 
@@ -167,10 +168,9 @@ class DETR(LightningModule):
                     facecolor='none',
                 )
                 ax.add_patch(pred_rect)
+
         # Create a green rectangle for the ground truth bounding box
         for gt_box in ground_truth_bbox:
-            print("GT boxes are")
-            print(gt_box)
             gt_rect = patches.Rectangle(
                 (gt_box[0], gt_box[1]),
                 gt_box[2] - gt_box[0],
@@ -183,6 +183,7 @@ class DETR(LightningModule):
             ax.add_patch(gt_rect)
         
         plt.title('Bounding Box Comparison')
+        plt.savefig(f"comparison_{str(uuid.uuid4())[0:5]}.png", format="png")
 
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmpfile:
             plt.savefig(tmpfile.name, format="png")
