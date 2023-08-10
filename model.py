@@ -101,39 +101,39 @@ class DETR(LightningModule):
         outputs = self._step(batch)
         self.logger.experiment.log({"train_loss": outputs["loss"]})
 
+        return outputs["loss"]
+
     def validation_step(self, batch, batch_idx) -> STEP_OUTPUT:
         outputs = self._step(batch)
         self.log("val_loss", outputs["loss"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
-        box_results = self.postprocess(outputs["outputs"], outputs["targets"])
+        processed = self.postprocess(outputs["outputs"], outputs["targets"])
+
+        print(f"Outputs shapes are {outputs['outputs']['pred_logits'].shape = } {outputs['outputs']['pred_boxes'].shape = }")
 
         # log image with ground truth box and prediction box to wandb
         # randomly sample 1 image from the batch
-        idx = np.random.randint(0, len(outputs["targets"]))
 
-        print(f"Softmax probabilities for rand image are\n", outputs["outputs"]["pred_logits"][idx].softmax(-1).max(-1).values)
-        self.plot_and_log_bounding_boxes(
-            image=outputs["targets"][idx]["original_image"],
-            predicted_bboxes=box_results["pred_boxes"][idx],
-            predicted_probabilities=outputs["outputs"]["pred_logits"][idx].softmax(-1).max(-1).values,
-            ground_truth_bbox=outputs["targets"][idx]["boxes"],
+        self.log_random_batch_example(
+            pbboxes=processed["pred_boxes"],
+            scores=processed["pred_softmax"],
+            targets=outputs["targets"],
         )
         return outputs["loss"]
 
     @torch.no_grad()
-    def postprocess(self, outputs: dict[str, Tensor], targets: dict[str, Tensor]):
+    def postprocess(self, outputs: dict[str, Tensor], targets: dict[str, Tensor], nms_threshold=0.5):
         """Takes the output of the model and the targets."""
         logits = outputs["pred_logits"]
         bboxes = outputs["pred_boxes"]
 
-        target_sizes = torch.stack([x["size"] for x in targets])
+        target_sizes = torch.stack([x["size"] for x in targets]) # (batch_size, 2)
         assert len(logits) == len(target_sizes)
 
-        probs = logits.softmax(-1)
-        scores, labels = probs.max(-1)
+        probs = logits[..., :-1].softmax(-1) # (batch_size, num_queries, num_classes)
+        scores, labels = probs.max(-1) # (batch_size, num_queries), (batch_size, num_queries)
 
-        # convert predicted boxes and ground truth boxes back to x1y1x2y2 format
-        bboxes = box_cxcywh_to_xyxy(bboxes)
+        bboxes = box_cxcywh_to_xyxy(bboxes) # (batch_size, num_queries, 4)
 
         # resize to original image size
         img_w, img_h = target_sizes.unbind(1)
@@ -141,52 +141,31 @@ class DETR(LightningModule):
 
         boxes = bboxes * scale_fct[:, None, :]
 
-        return {"pred_boxes": boxes, "pred_labels": labels, "pred_probabilities": scores}
+        return {"pred_boxes": boxes, "pred_labels": labels, "pred_softmax": probs, "pred_scores": scores, "pred_labels": labels}
 
-    def plot_and_log_bounding_boxes(self, image, predicted_bboxes, predicted_probabilities, ground_truth_bbox):
-        keep = predicted_probabilities > 0.9
-        predicted_bboxes = predicted_bboxes[keep]
-        predicted_probabilities = predicted_probabilities[keep]
+    def log_random_batch_example(self, pbboxes, scores, targets):
+        classes = self.trainer.train_dataloader.dataset.categories
 
-        w, h = image.size
-        ground_truth_bbox = box_cxcywh_to_xyxy(ground_truth_bbox) * torch.as_tensor([w, h, w, h], dtype=torch.float32)
+        # take the first image in the batch
+        scores = scores[0]
+        pbboxes = pbboxes[0]
+        image = targets[0]["original_image"]
 
-        # Create a figure and axis
-        fig, ax = plt.subplots()
-        ax.imshow(image)
+        # keep only predictions with a score above 0.9
+        keep = scores.max(-1).values > 0.9
+        pbboxes = pbboxes[keep]
+        scores = scores[keep]
 
-        if len(predicted_bboxes) > 0:  # with all low confidence scores we'll have no BB
-            for pred_box in predicted_bboxes:
-                print("predicted boxes are")
-                print(pred_box)
-                pred_rect = patches.Rectangle(
-                    (pred_box[0], pred_box[1]),
-                    pred_box[2] - pred_box[0],
-                    pred_box[3] - pred_box[1],
-                    linewidth=2,
-                    edgecolor='r',
-                    facecolor='none',
-                )
-                ax.add_patch(pred_rect)
-
-        # Create a green rectangle for the ground truth bounding box
-        for gt_box in ground_truth_bbox:
-            gt_rect = patches.Rectangle(
-                (gt_box[0], gt_box[1]),
-                gt_box[2] - gt_box[0],
-                gt_box[3] - gt_box[1],
-                linewidth=2,
-                edgecolor='g',
-                facecolor='none',
-            )
-
-            ax.add_patch(gt_rect)
-        
-        plt.title('Bounding Box Comparison')
-        plt.savefig(f"comparison_{str(uuid.uuid4())[0:5]}.png", format="png")
-
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmpfile:
-            plt.savefig(tmpfile.name, format="png")
-        
-        wandb.log({"rand_val_image": wandb.Image(tmpfile.name)})
-        os.remove(tmpfile.name)
+        # plot the image with the predicted boxes and labels
+        plt.figure(figsize=(16,10))
+        plt.imshow(image)
+        ax = plt.gca()
+        for p, (xmin, ymin, xmax, ymax) in zip(scores, pbboxes.tolist()):
+            ax.add_patch(plt.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin,
+                                    fill=False, color='r', linewidth=3))
+            cl = p.argmax()
+            text = f'{classes[cl.item()]}: {p[cl]:0.2f}'
+            ax.text(xmin, ymin, text, fontsize=15,
+                    bbox=dict(facecolor='yellow', alpha=0.5))
+        plt.axis('off')
+        plt.savefig(f"{uuid.uuid4()}.png")

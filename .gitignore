@@ -12,3 +12,4 @@ VOCdevkit/*
 wandb/*
 __pycache__/*
 detr/*
+COCO*/*

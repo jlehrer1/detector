@@ -6,11 +6,14 @@ from pytorch_lightning import Trainer
 from pytorch_lightning.loggers import WandbLogger
 
 if __name__ == "__main__":
-    traindata = ObjectDetectionDataset(data_dir="Aquarium/train", annotation_file="Aquarium/train/_annotations.coco.json")
-    testdata = ObjectDetectionDataset(data_dir="Aquarium/test", annotation_file="Aquarium/test/_annotations.coco.json")
+    # traindata = ObjectDetectionDataset(data_dir="Aquarium/train", annotation_file="Aquarium/train/_annotations.coco.json")
+    # testdata = ObjectDetectionDataset(data_dir="Aquarium/test", annotation_file="Aquarium/test/_annotations.coco.json")
 
-    trainloader = DataLoader(traindata, batch_size=2, shuffle=True, collate_fn=collate_fn)
-    testloader = DataLoader(testdata, batch_size=2, shuffle=True, collate_fn=collate_fn)
+    traindata = ObjectDetectionDataset(data_dir="COCOval2017", annotation_file="COCOval2017/instances_val2017.json")
+    testdata = ObjectDetectionDataset(data_dir="COCOval2017", annotation_file="COCOval2017/instances_val2017.json")
+
+    trainloader = DataLoader(traindata, batch_size=2, shuffle=False, collate_fn=collate_fn)
+    testloader = DataLoader(testdata, batch_size=2, shuffle=False, collate_fn=collate_fn)
 
     image, targets = next(iter(trainloader))
     model = DETR(num_classes=traindata.num_classes)
